@@ -4,12 +4,12 @@ import type React from "react";
 import ColorfulPixelLogo from "./components/ColorfulPixelLogo";
 import BlinkingCursor from "./components/BlinkingCursor";
 import FloatingPixels from "./components/FloatingPixels";
-import NavMenu from "./components/NavMenu";
 import ThemeToggle from "./components/ThemeToggle";
 import SoundEffect from "./components/SoundEffect";
 import PixelatedBackground from "./components/PixelatedBackground";
 import { UserProvider } from "@auth0/nextjs-auth0/client";
 import AuthButton from "../components/AuthButton";
+import Navbar from "@/components/Navbar";
 import { Toaster } from "sonner"; // Add this import
 
 const pressStart2P = Press_Start_2P({
@@ -45,6 +45,9 @@ export default function RootLayout({
           {/* Add Toaster for notifications */}
           <Toaster richColors position="top-right" />
 
+          {/* Add Navbar */}
+          <Navbar />
+
           <div className="fixed top-4 right-4 z-50">
             <ThemeToggle />
           </div>
@@ -63,9 +66,6 @@ export default function RootLayout({
                   Your retro-styled AI learning assistant for any programming
                   language, framework or development technology
                 </p>
-              </div>
-              <div className="container mx-auto p-4 flex justify-between items-center">
-                <AuthButton />
               </div>
             </header>
             <main>{children}</main>

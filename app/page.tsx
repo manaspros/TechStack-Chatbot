@@ -1,6 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
-import { ArrowRight, MessageSquare, Shield } from "lucide-react";
+import { ArrowRight, MessageSquare } from "lucide-react";
 
 export default function Home() {
   return (
@@ -53,24 +52,6 @@ export default function Home() {
               </div>
             </div>
           </div>
-        </div>
-
-        <div className="flex gap-6 justify-center mt-8">
-          <Link
-            href="/chatbot"
-            className="bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 flex items-center"
-          >
-            <MessageSquare className="mr-2 h-5 w-5" />
-            Start Chatting
-          </Link>
-
-          <Link
-            href="/protected"
-            className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 flex items-center"
-          >
-            <Shield className="mr-2 h-5 w-5" />
-            Protected Page
-          </Link>
         </div>
       </div>
     </main>
