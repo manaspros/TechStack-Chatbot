@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import { useUser } from "@auth0/nextjs-auth0/client";
+import { useRouter } from "next/navigation";
 import {
   Send,
   User,
@@ -13,12 +15,16 @@ import {
   ActivitySquare,
   Network,
   Map,
+  Trash2,
+  History,
+  Save,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import BlinkingCursor from "../components/BlinkingCursor";
 import LearningPathDiagram from "../components/LearningPathDiagram";
 import { cn } from "@/lib/utils";
 import styles from "../components/CustomScrollbar.module.css";
+import { toast } from "sonner"; // Add this import at the top with other imports
 
 // ...existing types and constants...
 type Message = {
@@ -428,6 +434,8 @@ const formatBotMessage = (text: string, isLearningPath: boolean = false) => {
 };
 
 export default function ChatbotPage() {
+  const { user, isLoading: isUserLoading, error: userError } = useUser();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialQuery = searchParams?.get("q") || "";
   const [messages, setMessages] = useState<Message[]>([]);
@@ -437,8 +445,408 @@ export default function ChatbotPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const initialQueryProcessedRef = useRef(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [chatHistory, setChatHistory] = useState<
+    Array<{ id: string; title: string; updatedAt: string }>
+  >([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // ...existing useEffects and handler functions...
+  // Handle authentication state
+  useEffect(() => {
+    if (!isUserLoading && !user && !userError) {
+      // Redirect to login if user is not authenticated
+      router.push(`/api/auth/login?returnTo=${encodeURIComponent("/chatbot")}`);
+    }
+  }, [user, isUserLoading, userError, router]);
+
+  // Show loading state while checking authentication
+  if (isUserLoading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500 mx-auto mb-4"></div>
+          <p className="text-green-400">Loading your session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if authentication failed
+  if (userError) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="text-center bg-red-900/20 p-6 rounded-lg border border-red-500/30">
+          <h2 className="text-xl font-bold text-red-400 mb-2">
+            Authentication Error
+          </h2>
+          <p className="mb-4 text-white/80">{userError.message}</p>
+          <button
+            onClick={() => router.push("/api/auth/login")}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated (and not loading), show a message
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="text-center">
+          <p className="text-green-400 mb-4">
+            Please sign in to access the chatbot
+          </p>
+          <button
+            onClick={() => router.push("/api/auth/login?returnTo=/chatbot")}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Initial load and history fetch
+  useEffect(() => {
+    if (user && !isUserLoading) {
+      fetchChatHistory();
+    }
+  }, [user, isUserLoading]);
+
+  // Function to fetch chat history
+  const fetchChatHistory = async () => {
+    try {
+      setError(null);
+
+      const response = await fetch("/api/chat", {
+        credentials: "include", // Important for Auth0 cookies
+      });
+
+      // Handle auth errors
+      if (response.status === 401) {
+        router.push("/api/auth/login");
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch chat history");
+      }
+
+      const data = await response.json();
+      if (data && Array.isArray(data.chats)) {
+        // Validate chat IDs before setting in state
+        const validChats = data.chats.filter((chat: { id: string | any[] }) => {
+          if (
+            !chat.id ||
+            typeof chat.id !== "string" ||
+            chat.id.length !== 24
+          ) {
+            console.warn(`Skipping chat with invalid ID: ${chat.id}`, chat);
+            return false;
+          }
+          return true;
+        });
+        console.log(
+          `Loaded ${validChats.length} valid chats from ${data.chats.length} total`
+        );
+        setChatHistory(validChats);
+      } else {
+        console.warn("Unexpected response format:", data);
+        setChatHistory([]);
+      }
+    } catch (error) {
+      console.error("Error fetching chat history:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to load chat history"
+      );
+      setChatHistory([]);
+    }
+  };
+
+  // Function to load a specific chat
+  const loadChat = async (id: string) => {
+    try {
+      // Add better debugging and validation
+      console.log("Loading chat with ID:", id);
+
+      // More thorough validation of chat ID
+      if (!id || id === "undefined" || id === "null") {
+        setError("Invalid chat ID");
+        return;
+      }
+
+      // Ensure ID is properly trimmed and formatted
+      const cleanId = id.trim();
+
+      if (cleanId.length !== 24) {
+        console.error(
+          `Chat ID has incorrect length: ${cleanId.length}, ID: ${cleanId}`
+        );
+        setError(
+          `Invalid chat ID format (incorrect length: ${cleanId.length})`
+        );
+        return;
+      }
+
+      setIsTyping(true);
+      const response = await fetch(`/api/chat/${cleanId}`, {
+        credentials: "include", // Important for Auth0 cookies
+      });
+
+      if (response.status === 400) {
+        setError("Invalid chat ID format");
+        setIsTyping(false);
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to load chat");
+      }
+
+      const data = await response.json();
+
+      // Convert chat data to our message format
+      const loadedMessages = data.chat.messages.map((msg: any) => ({
+        id: Date.now() + Math.random().toString(),
+        text: msg.content,
+        sender: msg.role === "user" ? "user" : "bot",
+        timestamp: new Date(msg.timestamp),
+        role: msg.role === "user" ? "user" : "model",
+        parts: msg.content,
+        questions: msg.role === "user" ? [] : detectQuestions(msg.content),
+        isLearningPath:
+          msg.role === "user" ? false : hasLearningStructure(msg.content),
+        learningSteps:
+          msg.role === "user" ? [] : extractLearningSteps(msg.content),
+        showDiagram: false,
+      }));
+
+      setMessages(loadedMessages);
+      setChatId(id);
+      setError(null);
+      setShowHistory(false);
+    } catch (error) {
+      console.error("Error loading chat:", error);
+      setError(error instanceof Error ? error.message : "Failed to load chat");
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
+  // Function to delete chat
+  const deleteChat = async (id: string) => {
+    try {
+      // Validate chat ID before making request
+      if (!id || id === "undefined") {
+        setError("Invalid chat ID");
+        return;
+      }
+
+      const response = await fetch(`/api/chat/${id}`, {
+        method: "DELETE",
+      });
+
+      if (response.status === 400) {
+        setError("Invalid chat ID format");
+        return;
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete chat");
+      }
+
+      await fetchChatHistory(); // Refresh chat history
+
+      // Clear current chat if the deleted one was active
+      if (id === chatId) {
+        setChatId(null);
+        setMessages([]);
+
+        // Add welcome message
+        setTimeout(() => {
+          const welcomeMessage: Message = {
+            id: Date.now().toString(),
+            text: "Hello! I'm your Tech Learning Assistant. Ask me about any technology or programming language you want to learn, and I can help guide your learning journey.",
+            sender: "bot",
+            timestamp: new Date(),
+            role: "model",
+            parts: "Hello! I'm your Tech Learning Assistant.",
+            questions: [],
+          };
+          setMessages([welcomeMessage]);
+        }, 500);
+      }
+    } catch (error) {
+      console.error("Error deleting chat:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to delete chat"
+      );
+    }
+  };
+
+  // Function to save current chat
+  const saveChat = async () => {
+    if (messages.length === 0) return;
+
+    try {
+      setIsSaving(true);
+
+      // Get first user message for title or use default
+      let title = "New Chat";
+      const firstUserMsg = messages.find((msg) => msg.sender === "user");
+      if (firstUserMsg) {
+        title =
+          firstUserMsg.text.slice(0, 30) +
+          (firstUserMsg.text.length > 30 ? "..." : "");
+      }
+
+      // Format messages for API
+      const formattedMessages = messages.map((msg) => ({
+        role: msg.sender === "user" ? "user" : "assistant",
+        content: msg.text,
+        timestamp: msg.timestamp,
+      }));
+
+      // Create payload
+      const payload = {
+        title: title,
+        message: formattedMessages[formattedMessages.length - 1], // Save just the last message
+      };
+
+      // Add chatId to payload if it exists and is not "undefined"
+      if (chatId && chatId !== "undefined") {
+        Object.assign(payload, { chatId });
+      }
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        credentials: "include", // Important for Auth0 cookies
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to save chat");
+      }
+
+      const data = await response.json();
+
+      // Check if we have a valid chat ID before setting it
+      if (data.chat && data.chat._id) {
+        setChatId(data.chat._id);
+        toast.success("Chat saved successfully!", {
+          description:
+            "Your conversation has been saved and can be accessed from chat history.",
+          duration: 3000,
+        });
+      } else {
+        console.warn("Received response without valid chat ID", data);
+      }
+
+      await fetchChatHistory(); // Refresh chat history
+    } catch (error) {
+      console.error("Error saving chat:", error);
+      setError("Failed to save chat");
+      toast.error("Failed to save chat", {
+        description: "Please try again later",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Modified handleUserMessage to save chat after receiving response
+  const handleUserMessage = async (
+    text: string,
+    generateLearningPath: boolean = false
+  ) => {
+    // Add user message to the chat
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: generateLearningPath ? `Create learning path for: ${text}` : text,
+      sender: "user",
+      timestamp: new Date(),
+      role: "user",
+      parts: text,
+      questions: [],
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
+    setInputValue("");
+    setIsTyping(true);
+
+    // Get response from the API
+    const response = await fetchBotResponse(text, generateLearningPath);
+    setIsTyping(false);
+
+    if (response) {
+      // Detect questions in the response text
+      const questions = detectQuestions(response.answer);
+
+      // Check if this is an explicit learning path or has learning structure
+      const isExplicitLearningPath = !!response.isLearningPath;
+      const hasStructure = hasLearningStructure(response.answer);
+      const shouldShowLearningPath = isExplicitLearningPath || hasStructure;
+
+      // Extract learning steps if appropriate
+      let learningSteps = undefined;
+      if (shouldShowLearningPath) {
+        console.log("Detected structured content in response");
+        learningSteps = extractLearningSteps(response.answer);
+        console.log("Extracted steps:", learningSteps?.length || 0);
+      }
+
+      // Determine if we should auto-display the diagram
+      const autoShowDiagram =
+        isExplicitLearningPath ||
+        (hasStructure && learningSteps && learningSteps.length >= 3);
+
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        text: response.answer,
+        sender: "bot",
+        timestamp: new Date(),
+        role: response.role || "model",
+        parts: response.answer,
+        isLearningPath: shouldShowLearningPath,
+        questions: questions,
+        learningSteps: learningSteps || [],
+        showDiagram: autoShowDiagram,
+      };
+
+      setMessages((prev) => [...prev, botMessage]);
+
+      // Save chat after getting response
+      setTimeout(() => {
+        saveChat();
+      }, 500);
+    } else {
+      // Handle error case
+      const errorMessage: Message = {
+        id: Date.now().toString(),
+        text: "Sorry, I encountered an error processing your request. Please try again later.",
+        sender: "bot",
+        timestamp: new Date(),
+        role: "model",
+        parts: "Error message",
+        questions: [],
+      };
+
+      setMessages((prev) => [...prev, errorMessage]);
+    }
+  };
+
   useEffect(() => {
     if (initialQuery && !initialQueryProcessedRef.current) {
       initialQueryProcessedRef.current = true;
@@ -542,82 +950,6 @@ export default function ChatbotPage() {
     }
   };
 
-  // Modified handleUserMessage to automatically detect and display learning paths
-  const handleUserMessage = async (
-    text: string,
-    generateLearningPath: boolean = false
-  ) => {
-    // Add user message to the chat
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: generateLearningPath ? `Create learning path for: ${text}` : text,
-      sender: "user",
-      timestamp: new Date(),
-      role: "user",
-      parts: text,
-      questions: [],
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setInputValue("");
-    setIsTyping(true);
-
-    // Get response from the API
-    const response = await fetchBotResponse(text, generateLearningPath);
-    setIsTyping(false);
-
-    if (response) {
-      // Detect questions in the response text
-      const questions = detectQuestions(response.answer);
-
-      // Check if this is an explicit learning path or has learning structure
-      const isExplicitLearningPath = !!response.isLearningPath;
-      const hasStructure = hasLearningStructure(response.answer);
-      const shouldShowLearningPath = isExplicitLearningPath || hasStructure;
-
-      // Extract learning steps if appropriate
-      let learningSteps = undefined;
-      if (shouldShowLearningPath) {
-        console.log("Detected structured content in response");
-        learningSteps = extractLearningSteps(response.answer);
-        console.log("Extracted steps:", learningSteps?.length || 0);
-      }
-
-      // Determine if we should auto-display the diagram
-      const autoShowDiagram =
-        isExplicitLearningPath ||
-        (hasStructure && learningSteps && learningSteps.length >= 3);
-
-      const botMessage: Message = {
-        id: Date.now().toString(),
-        text: response.answer,
-        sender: "bot",
-        timestamp: new Date(),
-        role: response.role || "model",
-        parts: response.answer,
-        isLearningPath: shouldShowLearningPath,
-        questions: questions,
-        learningSteps: learningSteps || [],
-        showDiagram: autoShowDiagram,
-      };
-
-      setMessages((prev) => [...prev, botMessage]);
-    } else {
-      // Handle error case
-      const errorMessage: Message = {
-        id: Date.now().toString(),
-        text: "Sorry, I encountered an error processing your request. Please try again later.",
-        sender: "bot",
-        timestamp: new Date(),
-        role: "model",
-        parts: "Error message",
-        questions: [],
-      };
-
-      setMessages((prev) => [...prev, errorMessage]);
-    }
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim()) return;
@@ -636,6 +968,46 @@ export default function ChatbotPage() {
         <p className="text-sm font-mono">
           Ask about any programming language, framework, or tech stack
         </p>
+
+        {/* Chat history button */}
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          className="mt-2 flex items-center gap-2 px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-xs mx-auto"
+        >
+          <History className="h-3 w-3" />
+          <span>{showHistory ? "Hide History" : "Show Chat History"}</span>
+        </button>
+
+        {/* Chat history panel */}
+        {showHistory && (
+          <div className="mt-4 w-full max-h-40 overflow-y-auto bg-gray-800 rounded-md border border-gray-700">
+            {chatHistory.length === 0 ? (
+              <p className="text-sm text-gray-400 p-3">No saved chats yet</p>
+            ) : (
+              <ul className="divide-y divide-gray-700">
+                {chatHistory.map((chat) => (
+                  <li
+                    key={chat.id}
+                    className="flex justify-between items-center p-2 hover:bg-gray-700"
+                  >
+                    <button
+                      onClick={() => loadChat(chat.id)}
+                      className="text-left text-sm flex-grow overflow-hidden overflow-ellipsis whitespace-nowrap pr-2"
+                    >
+                      {chat.title}
+                    </button>
+                    <button
+                      onClick={() => deleteChat(chat.id)}
+                      className="text-gray-400 hover:text-red-400"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Messages container with custom scrollbar */}
@@ -800,6 +1172,20 @@ export default function ChatbotPage() {
             disabled={isTyping || !inputValue.trim()}
           >
             <Send className="h-5 w-5" />
+          </button>
+
+          {/* Save button */}
+          <button
+            type="button"
+            onClick={saveChat}
+            disabled={messages.length === 0 || isSaving}
+            className={cn(
+              "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors",
+              (messages.length === 0 || isSaving) &&
+                "opacity-50 cursor-not-allowed"
+            )}
+          >
+            <Save className="h-5 w-5" />
           </button>
         </div>
 
