@@ -1,269 +1,238 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState } from "react";
+import { motion } from "framer-motion";
 import {
-  ChevronRight,
+  Lightbulb,
   BookOpen,
   Code,
-  Lightbulb,
   Zap,
-  ChevronDown,
-  Loader2,
+  CheckCircle,
+  AlertCircle,
+  HelpCircle,
+  Trophy,
   Info,
-  Plus,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import styles from "./CustomScrollbar.module.css";
+import { useUser } from "@auth0/nextjs-auth0/client";
+import LearningProgressTracker from "@/components/LearningProgressTracker";
 
-// API URL from environment variables
-const API_URL = process.env.NEXT_PUBLIC_API_URL
-  ? `${process.env.NEXT_PUBLIC_API_URL}/explain-step`
-  : "http://localhost:5000/explain-step";
+type StepType = "prerequisite" | "core" | "practice" | "advanced";
 
 interface LearningStep {
   id: string;
   title: string;
   description: string;
-  type: "prerequisite" | "core" | "practice" | "advanced";
+  type: StepType;
 }
 
 interface LearningPathDiagramProps {
   steps: LearningStep[];
-  className?: string;
+  chatId?: string;
 }
 
-const iconMap = {
-  prerequisite: <BookOpen className="h-4 w-4" />,
-  core: <Code className="h-4 w-4" />,
-  practice: <Zap className="h-4 w-4" />,
-  advanced: <Lightbulb className="h-4 w-4" />,
-};
+export default function LearningPathDiagram({
+  steps = [],
+  chatId,
+}: LearningPathDiagramProps) {
+  const { user } = useUser();
+  const [selectedStep, setSelectedStep] = useState<LearningStep | null>(null);
+  const [explanationText, setExplanationText] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
 
-const colorMap = {
-  prerequisite: "from-blue-600 to-blue-800 border-blue-500",
-  core: "from-green-600 to-green-800 border-green-500",
-  practice: "from-yellow-600 to-yellow-800 border-yellow-500",
-  advanced: "from-purple-600 to-purple-800 border-purple-500",
-};
+  // Sort steps by type for better visualization
+  const sortedSteps = [...steps].sort((a, b) => {
+    const typeOrder = {
+      prerequisite: 0,
+      core: 1,
+      practice: 2,
+      advanced: 3,
+    };
+    return typeOrder[a.type] - typeOrder[b.type];
+  });
 
-// Safely render text to ensure no markdown or HTML symbols remain
-const SafeTextDisplay = ({ text }: { text: string }) => {
-  const cleanedText = text
-    .replace(/\*/g, "")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  return <span>{cleanedText}</span>;
-};
-
-const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
-  steps,
-  className,
-}) => {
-  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
-  const [loadingStepId, setLoadingStepId] = useState<string | null>(null);
-  const [detailedExplanations, setDetailedExplanations] = useState<
-    Record<string, string>
-  >({});
-
-  const handleToggleDetails = async (stepId: string, stepTitle: string) => {
-    if (expandedStepId === stepId) {
-      setExpandedStepId(null);
-      return;
+  // Function to get step icon based on type
+  const getStepIcon = (type: StepType) => {
+    switch (type) {
+      case "prerequisite":
+        return <Lightbulb className="h-5 w-5 text-yellow-400" />;
+      case "core":
+        return <BookOpen className="h-5 w-5 text-blue-400" />;
+      case "practice":
+        return <Code className="h-5 w-5 text-green-400" />;
+      case "advanced":
+        return <Zap className="h-5 w-5 text-purple-400" />;
+      default:
+        return <HelpCircle className="h-5 w-5 text-gray-400" />;
     }
+  };
 
-    if (detailedExplanations[stepId]) {
-      setExpandedStepId(stepId);
-      return;
+  // Function to get step color based on type
+  const getStepColor = (type: StepType) => {
+    switch (type) {
+      case "prerequisite":
+        return "border-yellow-500/40 bg-yellow-900/20";
+      case "core":
+        return "border-blue-500/40 bg-blue-900/20";
+      case "practice":
+        return "border-green-500/40 bg-green-900/20";
+      case "advanced":
+        return "border-purple-500/40 bg-purple-900/20";
+      default:
+        return "border-gray-500/40 bg-gray-800/20";
     }
+  };
 
+  // Function to get explanation for a step using backend API
+  const getStepExplanation = async (step: LearningStep) => {
     try {
-      setLoadingStepId(stepId);
-      setExpandedStepId(stepId);
+      setSelectedStep(step);
+      setIsLoading(true);
+      setExplanationText(null);
 
-      const response = await fetch(API_URL, {
+      const response = await fetch("/api/explain-step", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          stepId,
-          stepTitle,
-          stepType: steps.find((step) => step.id === stepId)?.type || "core",
+          stepId: step.id,
+          stepTitle: step.title,
+          stepType: step.type,
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to fetch detailed explanation");
+        throw new Error("Failed to get explanation");
       }
 
       const data = await response.json();
-
-      setDetailedExplanations((prev) => ({
-        ...prev,
-        [stepId]: data.explanation,
-      }));
+      setExplanationText(data.explanation);
     } catch (error) {
-      console.error("Error fetching detailed explanation:", error);
-      setDetailedExplanations((prev) => ({
-        ...prev,
-        [stepId]:
-          "Sorry, I couldn't fetch a detailed explanation for this step. Please try again later.",
-      }));
+      console.error("Error fetching step explanation:", error);
+      setExplanationText("Sorry, couldn't load the explanation for this step.");
     } finally {
-      setLoadingStepId(null);
+      setIsLoading(false);
     }
   };
 
+  if (steps.length === 0) {
+    return (
+      <div className="py-4 px-6 text-center border border-gray-700 bg-gray-800/50 rounded-lg">
+        <AlertCircle className="mx-auto h-8 w-8 text-yellow-400 mb-2" />
+        <p className="text-yellow-300">No learning steps could be extracted.</p>
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("w-full my-6 px-2", className)}>
-      <div className="relative">
-        {steps.map((step, index) => (
-          <div key={step.id} className="flex flex-col mb-8 relative">
-            {/* Node and content container */}
-            <motion.div
-              className="flex items-start"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-            >
-              {/* Step node */}
-              <div
-                className={cn(
-                  "min-w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br border-2 shadow-lg text-white font-bold",
-                  colorMap[step.type]
+    <div className="w-full">
+      {/* Progress tracker toggle */}
+      {user && chatId && (
+        <button
+          onClick={() => setShowProgress(!showProgress)}
+          className="flex items-center gap-2 mb-4 px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600/50 border border-blue-500/30 rounded-md text-sm text-blue-300 transition-colors"
+        >
+          {showProgress ? (
+            <CheckCircle className="h-4 w-4" />
+          ) : (
+            <Trophy className="h-4 w-4" />
+          )}
+          {showProgress ? "Hide Progress Tracker" : "Track Your Progress"}
+        </button>
+      )}
+
+      {/* Progress tracker if enabled */}
+      {showProgress && user && chatId && (
+        <LearningProgressTracker chatId={chatId} steps={steps} />
+      )}
+
+      {/* Learning path legend */}
+      <div className="mb-6 flex flex-wrap gap-4 text-xs">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+          <span>Prerequisites</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+          <span>Core Concepts</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded-full bg-green-500"></div>
+          <span>Practice</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+          <span>Advanced</span>
+        </div>
+      </div>
+
+      {/* Learning path diagram */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+        {sortedSteps.map((step, index) => (
+          <motion.div
+            key={step.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: index * 0.1 }}
+            className={`border rounded-md p-3 cursor-pointer hover:shadow-md transition-all ${getStepColor(
+              step.type
+            )} ${
+              selectedStep?.id === step.id
+                ? "ring-2 ring-opacity-50 ring-white"
+                : ""
+            }`}
+            onClick={() => getStepExplanation(step)}
+          >
+            <div className="flex items-start gap-2">
+              <div className="mt-1">{getStepIcon(step.type)}</div>
+              <div>
+                <h4 className="text-sm font-semibold">{step.title}</h4>
+                {step.description && (
+                  <p className="text-xs opacity-60 mt-1">{step.description}</p>
                 )}
-              >
-                {iconMap[step.type]}
               </div>
-
-              {/* Content with safe text display and detail expansion */}
-              <div className="ml-4 bg-gray-900 p-3 rounded-md flex-grow border-l-2 border-gray-700">
-                <div className="flex justify-between items-center">
-                  <h3
-                    className={cn(
-                      "font-bold",
-                      step.type === "prerequisite"
-                        ? "text-blue-400"
-                        : step.type === "core"
-                        ? "text-green-400"
-                        : step.type === "practice"
-                        ? "text-yellow-400"
-                        : "text-purple-400"
-                    )}
-                  >
-                    <SafeTextDisplay text={step.title} />
-                  </h3>
-                </div>
-
-                <p className="text-xs mt-1 text-gray-300">
-                  <SafeTextDisplay text={step.description} />
-                </p>
-
-                {/* NEW: "Learn More" button with clear visual cue */}
-                <button
-                  onClick={() => handleToggleDetails(step.id, step.title)}
-                  className={cn(
-                    "mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-colors",
-                    expandedStepId === step.id
-                      ? "bg-gray-700 text-gray-300"
-                      : "bg-gray-800 hover:bg-gray-700 text-purple-300 hover:text-purple-200 border border-gray-700 hover:border-gray-600",
-                    "group"
-                  )}
-                  aria-expanded={expandedStepId === step.id}
-                >
-                  {loadingStepId === step.id ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      <span>Loading explanation...</span>
-                    </>
-                  ) : expandedStepId === step.id ? (
-                    <>
-                      <ChevronDown className="h-3.5 w-3.5 transform rotate-180" />
-                      <span>Hide explanation</span>
-                    </>
-                  ) : (
-                    <>
-                      <Info className="h-3.5 w-3.5 group-hover:scale-110 transition-transform" />
-                      <span>Learn more about this step</span>
-                      <Plus className="h-3 w-3 ml-1 text-purple-400 group-hover:rotate-90 transition-transform" />
-                    </>
-                  )}
-                </button>
-
-                {/* Detailed explanation section - with custom scrollbar */}
-                <AnimatePresence>
-                  {expandedStepId === step.id && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-3 pt-3 border-t border-gray-700">
-                        {loadingStepId === step.id ? (
-                          <div className="flex items-center justify-center py-4">
-                            <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
-                            <span className="ml-2 text-sm text-gray-400">
-                              Generating explanation...
-                            </span>
-                          </div>
-                        ) : (
-                          <div
-                            className={cn(
-                              "text-xs text-gray-200 leading-relaxed bg-gray-800 p-3 rounded-md border-l-2 border-purple-500",
-                              // Apply max height and custom scrollbar when content is long
-                              detailedExplanations[step.id] &&
-                                detailedExplanations[step.id].length > 400 &&
-                                "max-h-[200px] overflow-y-auto",
-                              styles.customScrollbar
-                            )}
-                          >
-                            <div
-                              dangerouslySetInnerHTML={{
-                                __html:
-                                  detailedExplanations[step.id] ||
-                                  "Loading explanation...",
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            </motion.div>
-
-            {/* Arrow to next step */}
-            {index < steps.length - 1 && (
-              <motion.div
-                className="absolute left-6 top-12 h-8 flex items-center justify-center -translate-x-1/2"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: index * 0.1 + 0.2 }}
-              >
-                <div className="w-0.5 h-full bg-gray-600 rounded-full"></div>
-                <ChevronRight className="absolute bottom-0 text-gray-400 -translate-x-1/2 translate-y-3" />
-              </motion.div>
-            )}
-          </div>
+            </div>
+          </motion.div>
         ))}
       </div>
 
-      {/* NEW: Help text for the diagram */}
-      <div className="flex items-center justify-center mt-2 mb-1">
-        <p className="text-xs text-gray-500 italic flex items-center">
-          <Info className="h-3 w-3 mr-1" />
-          <span>
-            Click on "Learn more" for detailed explanations about each step
-          </span>
-        </p>
-      </div>
+      {/* Step explanation area */}
+      {selectedStep && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className={`border rounded-lg p-4 mb-4 ${getStepColor(
+            selectedStep.type
+          )}`}
+        >
+          <h3 className="font-bold flex items-center gap-2 mb-3">
+            {getStepIcon(selectedStep.type)}
+            <span>{selectedStep.title}</span>
+          </h3>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="animate-pulse flex gap-2">
+                <div className="h-2 w-2 rounded-full bg-gray-400"></div>
+                <div className="h-2 w-2 rounded-full bg-gray-400 animation-delay-200"></div>
+                <div className="h-2 w-2 rounded-full bg-gray-400 animation-delay-400"></div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm leading-relaxed whitespace-pre-line">
+              {explanationText ? (
+                <div dangerouslySetInnerHTML={{ __html: explanationText }} />
+              ) : (
+                <div className="flex items-center gap-2 text-gray-400">
+                  <Info className="h-4 w-4" />
+                  <span>Click on a step to see detailed explanation</span>
+                </div>
+              )}
+            </div>
+          )}
+        </motion.div>
+      )}
     </div>
   );
-};
-
-export default LearningPathDiagram;
+}

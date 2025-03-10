@@ -918,18 +918,22 @@ export default function ChatbotPage() {
   ) => {
     try {
       setError(null);
-      const oldChats = getChatHistory();
 
-      const response = await fetch(API_URL, {
+      // Prepare the request payload
+      const payload = {
+        newChat: userText,
+        chatId: chatId, // Pass the current chat ID if we have one
+        generateLearningPath,
+        userId: user?.sub, // Add user ID for backend context tracking
+      };
+
+      const response = await fetch("/api/gemini", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          newChat: userText,
-          oldChats: oldChats,
-          generateLearningPath,
-        }),
+        body: JSON.stringify(payload),
+        credentials: "include", // Important for Auth0 cookies
       });
 
       if (!response.ok) {
@@ -1082,6 +1086,7 @@ export default function ChatbotPage() {
                           <div className="mt-2 border-t border-gray-700 pt-4">
                             <LearningPathDiagram
                               steps={message.learningSteps}
+                              chatId={chatId || undefined}
                             />
                           </div>
                         </div>

@@ -1,29 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { Chat } from "@/models/Chat";
+import { buildChatContext, trimContextToFit } from "@/lib/contextManager";
+import { getSession } from "@/lib/auth";
 
 // Get all chats for the logged-in user
 export async function GET(req: NextRequest) {
   try {
-    // Get the session data from the cookie
-    const cookieHeader = req.headers.get("cookie") || "";
+    // Get the session data from Auth0
+    const session = await getSession();
 
-    // Extract user info from the auth cookie that Auth0 sets
-    const sessionCookie = cookieHeader
-      .split(";")
-      .find((c) => c.trim().startsWith("appSession="));
-
-    if (!sessionCookie) {
+    if (!session || !session.user) {
       return NextResponse.json(
         { error: "Not authenticated", chats: [] },
         { status: 401 }
       );
     }
 
-    // Extract userId from the request's authorization context
-    // For demonstration, we'll handle client-side auth only
-    // The actual user ID will be validated by middleware
-    const userId = req.headers.get("x-user-id") || "demo-user";
+    const userId = session.user.sub;
 
     try {
       await connectToDatabase();
@@ -73,13 +67,18 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Create a new chat or update an existing chat
+// Create a new chat or update an existing chat with context awareness
 export async function POST(req: NextRequest) {
   try {
-    // For demonstration, extract userId from headers
-    // In production, this would be set by middleware after validating the Auth0 session
-    const userId = req.headers.get("x-user-id") || "demo-user";
-    const userEmail = req.headers.get("x-user-email") || "demo@example.com";
+    // Extract user info from the session
+    const session = await getSession();
+
+    if (!session || !session.user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const userId = session.user.sub;
+    const userEmail = session.user.email || "unknown@example.com";
 
     try {
       await connectToDatabase();
@@ -109,6 +108,7 @@ export async function POST(req: NextRequest) {
       // Add new message to the chat
       chat.messages.push(message);
       chat.updatedAt = new Date();
+      chat.lastMessageIndex = chat.messages.length;
 
       // Update title if provided
       if (title) {
@@ -124,6 +124,7 @@ export async function POST(req: NextRequest) {
         userEmail,
         title: title || "New Chat",
         messages: [message],
+        lastMessageIndex: 1,
       });
 
       await newChat.save();

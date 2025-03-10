@@ -5,6 +5,7 @@ export interface IMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  contextId?: string; // Add contextId to link related messages
 }
 
 // Define the structure of a chat session
@@ -15,6 +16,8 @@ export interface IChat extends Document {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+  contextSummary?: string; // Optional field to store AI-generated context summary
+  lastMessageIndex?: number; // Track last processed message for context building
 }
 
 // Create schema for messages within a chat
@@ -31,6 +34,10 @@ const MessageSchema = new Schema<IMessage>({
   timestamp: {
     type: Date,
     default: Date.now,
+  },
+  contextId: {
+    type: String,
+    required: false,
   },
 });
 
@@ -58,6 +65,14 @@ const ChatSchema = new Schema<IChat>({
   updatedAt: {
     type: Date,
     default: Date.now,
+  },
+  contextSummary: {
+    type: String,
+    required: false,
+  },
+  lastMessageIndex: {
+    type: Number,
+    default: 0,
   },
 });
 
