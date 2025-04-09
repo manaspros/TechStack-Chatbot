@@ -920,16 +920,33 @@ export default function ChatbotPage() {
       setError(null);
       const oldChats = getChatHistory();
 
+      // Debug the user object to see what's available
+      console.log("User object:", user);
+
+      // Create a userId using available information - with fallbacks
+      // Try sub first, then email, then name, then a default
+      const userId =
+        user?.sub ||
+        (user?.email ? `email:${user.email}` : null) ||
+        (user?.name ? `name:${user.name}` : null) ||
+        "anonymous-user";
+
+      console.log("Using userId:", userId);
+
       const response = await fetch(API_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-User-ID": userId, // Also send in header as fallback
         },
         body: JSON.stringify({
           newChat: userText,
           oldChats: oldChats,
           generateLearningPath,
+          userId: userId, // Use our derived userId
+          chatId: chatId || undefined, // Include chatId if available
         }),
+        credentials: "include", // Include cookies
       });
 
       if (!response.ok) {
@@ -938,6 +955,12 @@ export default function ChatbotPage() {
       }
 
       const data = await response.json();
+
+      // If the response includes a chatId, update our state
+      if (data.chatId) {
+        setChatId(data.chatId);
+      }
+
       return data;
     } catch (error) {
       console.error("API call failed:", error);
