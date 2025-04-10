@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@auth0/auth0-react": "^2.3.0",
     "@auth0/nextjs-auth0": "^3.1.0",
     "@custom-react-hooks/use-debounce": "^1.5.1",
     "@hookform/resolvers": "^3.9.1",

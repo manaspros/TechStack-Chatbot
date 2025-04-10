@@ -18,13 +18,16 @@ import {
   Trash2,
   History,
   Save,
+  Archive,
+  Loader2,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import BlinkingCursor from "../components/BlinkingCursor";
 import LearningPathDiagram from "../components/LearningPathDiagram";
 import { cn } from "@/lib/utils";
 import styles from "../components/CustomScrollbar.module.css";
-import { toast } from "sonner"; // Add this import at the top with other imports
+import { toast } from "sonner";
+import { learningService } from "@/utils/learningService";
 
 // ...existing types and constants...
 type Message = {
@@ -38,6 +41,8 @@ type Message = {
   questions?: string[];
   learningSteps?: LearningStep[];
   showDiagram?: boolean;
+  learningPathSaved?: boolean;
+  learningPathId?: string;
 };
 
 type LearningStep = {
@@ -54,12 +59,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL
 
 // Function to detect questions in the text
 const detectQuestions = (text: string): string[] => {
-  // ...existing code...
   if (!text) return [];
 
   const questions: string[] = [];
-
-  // Pattern to match sentences ending with question marks
   const questionRegex = /([^.!?]+\?)/g;
   const matches = text.match(questionRegex);
 
@@ -72,26 +74,18 @@ const detectQuestions = (text: string): string[] => {
   return questions;
 };
 
-// Function to detect if content has a learning structure (even if not explicitly a learning path)
+// Function to detect if content has a learning structure
 const hasLearningStructure = (text: string): boolean => {
-  // Check for numbered steps or phases
   const hasSteps =
     /(?:^|\n)(?:step|phase|part|level|stage|\d+)[:\.\)\-]?\s+/gi.test(text);
-
-  // Check for section headers
   const hasHeaders = /(?:^|\n)#{1,3}\s+/g.test(text);
-
-  // Check for multiple numbered list items
   const numberedItems = text.match(/(?:^|\n)\d+\.\s+/g);
-  const hasOrderedList = numberedItems && numberedItems.length >= 3; // At least 3 numbered items
-
-  // Check for keywords that suggest a learning sequence
+  const hasOrderedList = numberedItems && numberedItems.length >= 3;
   const hasLearningKeywords =
     /\b(?:prerequisites?|fundamentals|essentials|basics|first|second|third|then|next|finally|advanced|begin by|start with)\b/i.test(
       text
     );
 
-  // Return true if any of the structured content patterns are detected
   return hasSteps || hasHeaders || hasOrderedList || hasLearningKeywords;
 };
 
@@ -99,28 +93,20 @@ const hasLearningStructure = (text: string): boolean => {
 const cleanMarkdownText = (text: string): string => {
   if (!text) return "";
 
-  // Remove markdown formatting symbols without losing content
   return text
-    .replace(/\*\*(.*?)\*\*/g, "$1") // Remove bold asterisks
-    .replace(/\*(.*?)\*/g, "$1") // Remove italic asterisks
-    .replace(/__(.*?)__/g, "$1") // Remove bold underscores
-    .replace(/_(.*?)_/g, "$1") // Remove italic underscores
-    .replace(/`(.*?)`/g, "$1") // Remove code backticks
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1"); // Keep link text, remove URL
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/_(.*?)_/g, "$1")
+    .replace(/`(.*?)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 };
 
 // Improved function to extract learning steps from a learning path text
 const extractLearningSteps = (text: string): LearningStep[] => {
-  // ...existing function with better pattern matching...
   if (!text) return [];
 
-  console.log(
-    "Extracting learning steps from:",
-    text.substring(0, 100) + "..."
-  );
   const steps: LearningStep[] = [];
-
-  // Try to identify different sections in the learning path
   const sections = [
     {
       pattern:
@@ -143,30 +129,23 @@ const extractLearningSteps = (text: string): LearningStep[] => {
     },
   ];
 
-  // More permissive pattern to catch different numbering styles and headers
   const stepPatterns = [
-    // Match explicit steps/phases
     /(?:^|\n)(?:Step|Phase|Part|Level|Stage)[\s:-]+(\d+|[A-Z])[\s:-]*([^\n]+)/gi,
-    // Match numbered headers like "1. Title" or "1) Title"
     /(?:^|\n)(\d+)[\.:\)\-]\s+([^\n]+)/gi,
-    // Match markdown headers with potential prefixes
     /(?:^|\n)#{1,3}\s+(?:(?:Step|Phase|Part|Stage|Level)[\s:-]+)?([^\n]+)/gi,
   ];
 
   let match;
   let stepCount = 0;
 
-  // Try each pattern in sequence
   for (const pattern of stepPatterns) {
     const regex = new RegExp(pattern);
 
     while ((match = regex.exec(text)) !== null) {
       stepCount++;
-      // Extract title (different positions based on regex pattern)
       const rawTitle = match[2] || match[1] || `Step ${stepCount}`;
       const title = cleanMarkdownText(rawTitle);
 
-      // Get content following this step
       const startIdx = match.index + match[0].length;
       const endIdx = text.indexOf("\n\n", startIdx + 10);
       let rawDescription = text
@@ -176,10 +155,8 @@ const extractLearningSteps = (text: string): LearningStep[] => {
         )
         .trim();
 
-      // Clean the description of markdown symbols
       let description = cleanMarkdownText(rawDescription);
 
-      // Additional cleanup
       description = description.replace(/^\s*[-•*]\s*/, "").trim();
       description = description.replace(/^[:\-–]\s*/, "").trim();
 
@@ -188,10 +165,8 @@ const extractLearningSteps = (text: string): LearningStep[] => {
         description = description.substring(0, 97) + "...";
       }
 
-      // Determine the type of step
       let stepType: "prerequisite" | "core" | "practice" | "advanced";
 
-      // Check content for keywords to determine type
       const sectionMatched = sections.find((section) =>
         section.pattern.test(title.toLowerCase())
       );
@@ -216,11 +191,9 @@ const extractLearningSteps = (text: string): LearningStep[] => {
       });
     }
 
-    // If we found steps with this pattern, stop trying others
     if (steps.length > 0) break;
   }
 
-  // If no structured steps found, try to extract from regular numbered lists
   if (steps.length === 0) {
     const listItemRegex = /(?:^|\n)(\d+)\.\s+([^\n]+)/g;
 
@@ -229,7 +202,6 @@ const extractLearningSteps = (text: string): LearningStep[] => {
       const rawContent = match[2].trim();
       const content = cleanMarkdownText(rawContent);
 
-      // Only include meaningful list items (longer than just a few characters)
       if (content.length > 10) {
         const stepType =
           stepCount < 2
@@ -254,22 +226,18 @@ const extractLearningSteps = (text: string): LearningStep[] => {
     }
   }
 
-  // If still no steps found, create basic steps from the text structure
   if (steps.length === 0 && hasLearningStructure(text)) {
-    // Create default learning steps for structured content
     const paragraphs = text
       .split("\n\n")
       .filter((p) => p.trim().length > 0)
-      .slice(0, 5); // Use first 5 paragraphs at most
+      .slice(0, 5);
 
     const stepTypes = ["prerequisite", "core", "core", "practice", "advanced"];
 
     paragraphs.forEach((paragraph, idx) => {
-      // Extract a title from the paragraph
       let title = paragraph.split(/[.!?]/)[0].trim();
       if (title.length > 50) title = title.substring(0, 47) + "...";
 
-      // Get a short description
       let description = paragraph.substring(title.length).trim().slice(0, 100);
       if (!description && paragraph.length > title.length) {
         description = paragraph
@@ -298,15 +266,12 @@ const extractLearningSteps = (text: string): LearningStep[] => {
 const formatBotMessage = (text: string, isLearningPath: boolean = false) => {
   if (!text) return "";
 
-  // Format learning path sections specially
   if (isLearningPath) {
-    // ...existing learning path formatting...
     text = text.replace(
       /^(Step \d+:|#+ Step \d+:|#+ \d+\.|Phase \d+:)/gim,
       '<h3 class="font-bold text-green-400 text-lg mt-4 mb-2">$1</h3>'
     );
 
-    // Add learning path intro
     text =
       `<div class="bg-gray-900 p-3 mb-4 rounded-md border-l-4 border-green-400">
               <h2 class="font-bold text-xl text-green-400 mb-2">Learning Path</h2>
@@ -314,19 +279,14 @@ const formatBotMessage = (text: string, isLearningPath: boolean = false) => {
             </div>` + text;
   }
 
-  // Process code blocks first before other formatting
-  // Match code blocks with language specification: ```language ... ```
   let formattedText = text.replace(
     /```([a-zA-Z0-9_-]*)\n([\s\S]*?)\n```/g,
     (_, language, code) => {
-      // Clean the language name
       const lang = language.trim().toLowerCase() || "plaintext";
 
-      // Determine language-specific styling
       let langClass = "";
       let langLabel = lang;
 
-      // Handle common programming languages
       if (["javascript", "js", "typescript", "ts"].includes(lang)) {
         langClass = "text-yellow-300";
         langLabel =
@@ -351,10 +311,8 @@ const formatBotMessage = (text: string, isLearningPath: boolean = false) => {
         langLabel = "SQL";
       }
 
-      // Escape HTML in the code
       const escapedCode = code.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-      // Return styled code block
       return `
         <div class="my-4 rounded-md overflow-hidden border border-gray-700 bg-gray-900">
           <div class="flex justify-between items-center px-4 py-1 bg-gray-800 border-b border-gray-700">
@@ -369,19 +327,16 @@ const formatBotMessage = (text: string, isLearningPath: boolean = false) => {
     }
   );
 
-  // Handle inline code blocks (text between backticks)
   formattedText = formattedText.replace(
     /`([^`]+)`/g,
     '<code class="px-1.5 py-0.5 rounded bg-gray-900 text-orange-300 font-mono text-sm">$1</code>'
   );
 
-  // Convert URLs to clickable links
   const urlRegex = /(https?:\/\/[^\s]+)/g;
   formattedText = formattedText.replace(urlRegex, (url) => {
     return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">${url}</a>`;
   });
 
-  // Rest of formatting (bold, italic, lists, etc.)
   formattedText = formattedText.replace(
     /\*\*(.*?)\*\*/g,
     "<strong class='text-green-400'>$1</strong>"
@@ -451,16 +406,16 @@ export default function ChatbotPage() {
   >([]);
   const [showHistory, setShowHistory] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingLearningPath, setSavingLearningPath] = useState<string | null>(
+    null
+  );
 
-  // Handle authentication state
   useEffect(() => {
     if (!isUserLoading && !user && !userError) {
-      // Redirect to login if user is not authenticated
       router.push(`/api/auth/login?returnTo=${encodeURIComponent("/chatbot")}`);
     }
   }, [user, isUserLoading, userError, router]);
 
-  // Show loading state while checking authentication
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -472,7 +427,6 @@ export default function ChatbotPage() {
     );
   }
 
-  // Show error state if authentication failed
   if (userError) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -492,7 +446,6 @@ export default function ChatbotPage() {
     );
   }
 
-  // If not authenticated (and not loading), show a message
   if (!user) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -511,23 +464,20 @@ export default function ChatbotPage() {
     );
   }
 
-  // Initial load and history fetch
   useEffect(() => {
     if (user && !isUserLoading) {
       fetchChatHistory();
     }
   }, [user, isUserLoading]);
 
-  // Function to fetch chat history
   const fetchChatHistory = async () => {
     try {
       setError(null);
 
       const response = await fetch("/api/chat", {
-        credentials: "include", // Important for Auth0 cookies
+        credentials: "include",
       });
 
-      // Handle auth errors
       if (response.status === 401) {
         router.push("/api/auth/login");
         return;
@@ -540,7 +490,6 @@ export default function ChatbotPage() {
 
       const data = await response.json();
       if (data && Array.isArray(data.chats)) {
-        // Validate chat IDs before setting in state
         const validChats = data.chats.filter((chat: { id: string | any[] }) => {
           if (
             !chat.id ||
@@ -569,19 +518,15 @@ export default function ChatbotPage() {
     }
   };
 
-  // Function to load a specific chat
   const loadChat = async (id: string) => {
     try {
-      // Add better debugging and validation
       console.log("Loading chat with ID:", id);
 
-      // More thorough validation of chat ID
       if (!id || id === "undefined" || id === "null") {
         setError("Invalid chat ID");
         return;
       }
 
-      // Ensure ID is properly trimmed and formatted
       const cleanId = id.trim();
 
       if (cleanId.length !== 24) {
@@ -596,7 +541,7 @@ export default function ChatbotPage() {
 
       setIsTyping(true);
       const response = await fetch(`/api/chat/${cleanId}`, {
-        credentials: "include", // Important for Auth0 cookies
+        credentials: "include",
       });
 
       if (response.status === 400) {
@@ -612,7 +557,6 @@ export default function ChatbotPage() {
 
       const data = await response.json();
 
-      // Convert chat data to our message format
       const loadedMessages = data.chat.messages.map((msg: any) => ({
         id: Date.now() + Math.random().toString(),
         text: msg.content,
@@ -640,10 +584,8 @@ export default function ChatbotPage() {
     }
   };
 
-  // Function to delete chat
   const deleteChat = async (id: string) => {
     try {
-      // Validate chat ID before making request
       if (!id || id === "undefined") {
         setError("Invalid chat ID");
         return;
@@ -663,14 +605,12 @@ export default function ChatbotPage() {
         throw new Error(errorData.error || "Failed to delete chat");
       }
 
-      await fetchChatHistory(); // Refresh chat history
+      await fetchChatHistory();
 
-      // Clear current chat if the deleted one was active
       if (id === chatId) {
         setChatId(null);
         setMessages([]);
 
-        // Add welcome message
         setTimeout(() => {
           const welcomeMessage: Message = {
             id: Date.now().toString(),
@@ -692,14 +632,12 @@ export default function ChatbotPage() {
     }
   };
 
-  // Function to save current chat
   const saveChat = async () => {
     if (messages.length === 0) return;
 
     try {
       setIsSaving(true);
 
-      // Get first user message for title or use default
       let title = "New Chat";
       const firstUserMsg = messages.find((msg) => msg.sender === "user");
       if (firstUserMsg) {
@@ -708,20 +646,17 @@ export default function ChatbotPage() {
           (firstUserMsg.text.length > 30 ? "..." : "");
       }
 
-      // Format messages for API
       const formattedMessages = messages.map((msg) => ({
         role: msg.sender === "user" ? "user" : "assistant",
         content: msg.text,
         timestamp: msg.timestamp,
       }));
 
-      // Create payload
       const payload = {
         title: title,
-        message: formattedMessages[formattedMessages.length - 1], // Save just the last message
+        message: formattedMessages[formattedMessages.length - 1],
       };
 
-      // Add chatId to payload if it exists and is not "undefined"
       if (chatId && chatId !== "undefined") {
         Object.assign(payload, { chatId });
       }
@@ -732,7 +667,7 @@ export default function ChatbotPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
-        credentials: "include", // Important for Auth0 cookies
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -742,7 +677,6 @@ export default function ChatbotPage() {
 
       const data = await response.json();
 
-      // Check if we have a valid chat ID before setting it
       if (data.chat && data.chat._id) {
         setChatId(data.chat._id);
         toast.success("Chat saved successfully!", {
@@ -754,7 +688,7 @@ export default function ChatbotPage() {
         console.warn("Received response without valid chat ID", data);
       }
 
-      await fetchChatHistory(); // Refresh chat history
+      await fetchChatHistory();
     } catch (error) {
       console.error("Error saving chat:", error);
       setError("Failed to save chat");
@@ -766,12 +700,10 @@ export default function ChatbotPage() {
     }
   };
 
-  // Modified handleUserMessage to save chat after receiving response
   const handleUserMessage = async (
     text: string,
     generateLearningPath: boolean = false
   ) => {
-    // Add user message to the chat
     const userMessage: Message = {
       id: Date.now().toString(),
       text: generateLearningPath ? `Create learning path for: ${text}` : text,
@@ -786,20 +718,16 @@ export default function ChatbotPage() {
     setInputValue("");
     setIsTyping(true);
 
-    // Get response from the API
     const response = await fetchBotResponse(text, generateLearningPath);
     setIsTyping(false);
 
     if (response) {
-      // Detect questions in the response text
       const questions = detectQuestions(response.answer);
 
-      // Check if this is an explicit learning path or has learning structure
       const isExplicitLearningPath = !!response.isLearningPath;
       const hasStructure = hasLearningStructure(response.answer);
       const shouldShowLearningPath = isExplicitLearningPath || hasStructure;
 
-      // Extract learning steps if appropriate
       let learningSteps = undefined;
       if (shouldShowLearningPath) {
         console.log("Detected structured content in response");
@@ -807,7 +735,6 @@ export default function ChatbotPage() {
         console.log("Extracted steps:", learningSteps?.length || 0);
       }
 
-      // Determine if we should auto-display the diagram
       const autoShowDiagram =
         isExplicitLearningPath ||
         (hasStructure && learningSteps && learningSteps.length >= 3);
@@ -827,12 +754,10 @@ export default function ChatbotPage() {
 
       setMessages((prev) => [...prev, botMessage]);
 
-      // Save chat after getting response
       setTimeout(() => {
         saveChat();
       }, 500);
     } else {
-      // Handle error case
       const errorMessage: Message = {
         id: Date.now().toString(),
         text: "Sorry, I encountered an error processing your request. Please try again later.",
@@ -853,7 +778,6 @@ export default function ChatbotPage() {
       handleUserMessage(initialQuery);
     } else if (!initialQuery && !initialQueryProcessedRef.current) {
       initialQueryProcessedRef.current = true;
-      // Add welcome message if no initial query
       setTimeout(() => {
         const welcomeMessage: Message = {
           id: Date.now().toString(),
@@ -869,12 +793,10 @@ export default function ChatbotPage() {
     }
   }, [initialQuery]);
 
-  // Auto scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Toggle diagram view for a specific message
   const toggleDiagram = (messageId: string) => {
     setMessages((prev) =>
       prev.map((msg) =>
@@ -883,7 +805,6 @@ export default function ChatbotPage() {
     );
   };
 
-  // Function to get chat history in the format expected by the API
   const getChatHistory = () => {
     return messages.map((message) => ({
       role: message.sender === "user" ? "user" : "model",
@@ -891,19 +812,15 @@ export default function ChatbotPage() {
     }));
   };
 
-  // Function to handle responding to a specific question
   const handleRespondToQuestion = (question: string) => {
-    // Create a response template
     const responseTemplate = `Regarding your question: "${question}"\n\nMy answer is: `;
     setInputValue(responseTemplate);
 
-    // Focus the input field
     const inputField = document.querySelector(
       'input[type="text"]'
     ) as HTMLInputElement;
     if (inputField) {
       inputField.focus();
-      // Position cursor at the end
       inputField.setSelectionRange(
         responseTemplate.length,
         responseTemplate.length
@@ -911,7 +828,6 @@ export default function ChatbotPage() {
     }
   };
 
-  // Updated function to call the backend API with environment variable URL
   const fetchBotResponse = async (
     userText: string,
     generateLearningPath: boolean = false
@@ -920,11 +836,8 @@ export default function ChatbotPage() {
       setError(null);
       const oldChats = getChatHistory();
 
-      // Debug the user object to see what's available
       console.log("User object:", user);
 
-      // Create a userId using available information - with fallbacks
-      // Try sub first, then email, then name, then a default
       const userId =
         user?.sub ||
         (user?.email ? `email:${user.email}` : null) ||
@@ -937,16 +850,16 @@ export default function ChatbotPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-User-ID": userId, // Also send in header as fallback
+          "X-User-ID": userId,
         },
         body: JSON.stringify({
           newChat: userText,
           oldChats: oldChats,
           generateLearningPath,
-          userId: userId, // Use our derived userId
-          chatId: chatId || undefined, // Include chatId if available
+          userId: userId,
+          chatId: chatId || undefined,
         }),
-        credentials: "include", // Include cookies
+        credentials: "include",
       });
 
       if (!response.ok) {
@@ -956,7 +869,6 @@ export default function ChatbotPage() {
 
       const data = await response.json();
 
-      // If the response includes a chatId, update our state
       if (data.chatId) {
         setChatId(data.chatId);
       }
@@ -970,6 +882,87 @@ export default function ChatbotPage() {
           : "Failed to communicate with the chatbot"
       );
       return null;
+    }
+  };
+
+  const saveLearningPath = async (messageId: string) => {
+    const message = messages.find((m) => m.id === messageId);
+    if (!message || !message.learningSteps || message.learningSteps.length === 0) {
+      toast.error("No learning path found to save");
+      return;
+    }
+    
+    if (message.learningPathSaved && message.learningPathId) {
+      router.push(`/learning-paths?pathId=${message.learningPathId}`);
+      return;
+    }
+
+    try {
+      setSavingLearningPath(messageId);
+
+      // Get the user info from Auth0 if available
+      const userInfo = user;
+      
+      // Create a userId - either from Auth0 or a generated session ID
+      const userId = userInfo?.sub || `session:${Date.now().toString()}`;
+      
+      const previousMessages = messages
+        .slice(0, messages.findIndex((m) => m.id === messageId) + 1)
+        .map((m) => m.text)
+        .join("\n\n");
+
+      const userQuery =
+        messages.find(
+          (m) =>
+            m.sender === "user" &&
+            messages.indexOf(m) < messages.findIndex((msg) => msg.id === messageId)
+        )?.text || "Learning Path";
+
+      const pathData = {
+        userId: userId,
+        chatId: chatId || undefined,
+        title: `Learning Path: ${
+          userQuery.length > 40 ? userQuery.substring(0, 40) + "..." : userQuery
+        }`,
+        steps: message.learningSteps.map((step) => ({
+          id: step.id,
+          title: step.title,
+          completed: false,
+          category: step.type,
+        })),
+        description: `Learning path generated for: ${userQuery}`,
+        estimatedTimeToComplete: "Varies by experience level",
+        difficulty: "intermediate",
+      };
+
+      const result = await learningService.createLearningPath(pathData);
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                learningPathSaved: true,
+                learningPathId: result.learningPath._id,
+              }
+            : m
+        )
+      );
+
+      toast.success("Learning path saved successfully!", {
+        description:
+          "You can now track your progress in the Learning Paths section",
+        action: {
+          label: "View Path",
+          onClick: () =>
+            router.push(`/learning-paths?pathId=${result.learningPath._id}`),
+        },
+      });
+    } catch (error) {
+      console.error("Error saving learning path:", error);
+      toast.error("Failed to save learning path");
+    } finally {
+      setSavingLearningPath(null);
     }
   };
 
@@ -992,7 +985,6 @@ export default function ChatbotPage() {
           Ask about any programming language, framework, or tech stack
         </p>
 
-        {/* Chat history button */}
         <button
           onClick={() => setShowHistory(!showHistory)}
           className="mt-2 flex items-center gap-2 px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded-md text-xs mx-auto"
@@ -1001,7 +993,6 @@ export default function ChatbotPage() {
           <span>{showHistory ? "Hide History" : "Show Chat History"}</span>
         </button>
 
-        {/* Chat history panel */}
         {showHistory && (
           <div className="mt-4 w-full max-h-40 overflow-y-auto bg-gray-800 rounded-md border border-gray-700">
             {chatHistory.length === 0 ? (
@@ -1033,7 +1024,6 @@ export default function ChatbotPage() {
         )}
       </div>
 
-      {/* Messages container with custom scrollbar */}
       <div
         className={cn(
           "flex-grow overflow-y-auto px-4 py-2 border-2 border-green-400 bg-gray-950 rounded-lg mb-4",
@@ -1081,7 +1071,6 @@ export default function ChatbotPage() {
                   />
                 )}
 
-                {/* Show Learning Path Diagram for structured content */}
                 {message.isLearningPath &&
                   message.learningSteps &&
                   message.learningSteps.length > 0 && (
@@ -1095,32 +1084,84 @@ export default function ChatbotPage() {
                                 Learning Roadmap
                               </span>
                             </div>
-                            <button
-                              onClick={() => toggleDiagram(message.id)}
-                              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded"
-                            >
-                              <ActivitySquare className="h-3 w-3" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => saveLearningPath(message.id)}
+                                disabled={savingLearningPath === message.id}
+                                className={cn(
+                                  "text-xs flex items-center gap-1 px-2 py-1 rounded transition-colors",
+                                  message.learningPathSaved
+                                    ? "bg-green-700 hover:bg-green-800 text-white"
+                                    : "bg-purple-700 hover:bg-purple-800 text-white"
+                                )}
+                              >
+                                {savingLearningPath === message.id ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : message.learningPathSaved ? (
+                                  <>
+                                    <Archive className="h-3 w-3" />
+                                    <span>View Progress</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Archive className="h-3 w-3" />
+                                    <span>Track Progress</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                onClick={() => toggleDiagram(message.id)}
+                                className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded"
+                              >
+                                <ActivitySquare className="h-3 w-3" />
+                              </button>
+                            </div>
                           </div>
                           <div className="mt-2 border-t border-gray-700 pt-4">
                             <LearningPathDiagram
                               steps={message.learningSteps}
+                              enableTracking={message.learningPathSaved}
+                              pathId={message.learningPathId}
                             />
                           </div>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => toggleDiagram(message.id)}
-                          className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md text-sm transition-colors"
-                        >
-                          <Network className="h-4 w-4" />
-                          <span>Show Visual Learning Path</span>
-                        </button>
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => toggleDiagram(message.id)}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md text-sm transition-colors"
+                          >
+                            <Network className="h-4 w-4" />
+                            <span>Show Visual Learning Path</span>
+                          </button>
+
+                          {!message.showDiagram && (
+                            <button
+                              onClick={() => saveLearningPath(message.id)}
+                              disabled={savingLearningPath === message.id}
+                              className={cn(
+                                "flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors",
+                                message.learningPathSaved
+                                  ? "bg-green-700 hover:bg-green-800 text-white"
+                                  : "bg-purple-700 hover:bg-purple-800 text-white"
+                              )}
+                            >
+                              {savingLearningPath === message.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                              ) : (
+                                <Archive className="h-4 w-4 mr-1" />
+                              )}
+                              {message.learningPathSaved
+                                ? "View Progress"
+                                : "Track Progress"}
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
 
-                {/* Display questions with response buttons if there are any */}
                 {message.sender === "bot" &&
                   message.questions &&
                   message.questions.length > 0 && (
@@ -1175,7 +1216,6 @@ export default function ChatbotPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-2">
         <div className="flex gap-2">
           <input
@@ -1197,7 +1237,6 @@ export default function ChatbotPage() {
             <Send className="h-5 w-5" />
           </button>
 
-          {/* Save button */}
           <button
             type="button"
             onClick={saveChat}
@@ -1212,7 +1251,6 @@ export default function ChatbotPage() {
           </button>
         </div>
 
-        {/* Learning Path Button */}
         <button
           type="button"
           onClick={handleRequestLearningPath}

@@ -1,6 +1,5 @@
 "use client";
-
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
@@ -12,9 +11,14 @@ import {
   Loader2,
   Info,
   Plus,
+  CheckSquare,
+  Square
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import styles from "./CustomScrollbar.module.css";
+import { learningService } from "@/utils/learningService";
+import useProtectedFetch from "@/utils/useProtectedFetch";
+import { toast } from "sonner";
 
 // API URL from environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL
@@ -26,11 +30,16 @@ interface LearningStep {
   title: string;
   description: string;
   type: "prerequisite" | "core" | "practice" | "advanced";
+  completed?: boolean;
+  completedAt?: Date;
 }
 
 interface LearningPathDiagramProps {
   steps: LearningStep[];
   className?: string;
+  enableTracking?: boolean;
+  pathId?: string;
+  onProgressUpdate?: (completedSteps: number, totalSteps: number) => void;
 }
 
 const iconMap = {
@@ -47,41 +56,74 @@ const colorMap = {
   advanced: "from-purple-600 to-purple-800 border-purple-500",
 };
 
+const completedColorMap = {
+  prerequisite: "from-blue-800 to-blue-900 border-blue-300",
+  core: "from-green-800 to-green-900 border-green-300",
+  practice: "from-yellow-800 to-yellow-900 border-yellow-300",
+  advanced: "from-purple-800 to-purple-900 border-purple-300",
+};
+
 // Safely render text to ensure no markdown or HTML symbols remain
 const SafeTextDisplay = ({ text }: { text: string }) => {
   const cleanedText = text
     .replace(/\*/g, "")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-
   return <span>{cleanedText}</span>;
 };
 
 const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
   steps,
   className,
+  enableTracking = false,
+  pathId,
+  onProgressUpdate
 }) => {
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
   const [loadingStepId, setLoadingStepId] = useState<string | null>(null);
   const [detailedExplanations, setDetailedExplanations] = useState<
     Record<string, string>
   >({});
+  const [trackedSteps, setTrackedSteps] = useState<LearningStep[]>(steps);
+  const [updatingStepId, setUpdatingStepId] = useState<string | null>(null);
+  const { getUserInfo, getToken } = useProtectedFetch();
+  const [userId, setUserId] = useState<string | null>(null);
+
+  // Fetch user ID when component mounts if tracking is enabled
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      if (enableTracking) {
+        try {
+          const userInfo = await getUserInfo();
+          if (userInfo?.sub) {
+            setUserId(userInfo.sub);
+          }
+        } catch (error) {
+          console.error("Error fetching user info:", error);
+        }
+      }
+    };
+
+    fetchUserInfo();
+  }, [enableTracking, getUserInfo]);
+
+  // Update tracked steps whenever input steps change
+  useEffect(() => {
+    setTrackedSteps(steps);
+  }, [steps]);
 
   const handleToggleDetails = async (stepId: string, stepTitle: string) => {
     if (expandedStepId === stepId) {
       setExpandedStepId(null);
       return;
     }
-
     if (detailedExplanations[stepId]) {
       setExpandedStepId(stepId);
       return;
     }
-
     try {
       setLoadingStepId(stepId);
       setExpandedStepId(stepId);
-
       const response = await fetch(API_URL, {
         method: "POST",
         headers: {
@@ -93,13 +135,10 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
           stepType: steps.find((step) => step.id === stepId)?.type || "core",
         }),
       });
-
       if (!response.ok) {
         throw new Error("Failed to fetch detailed explanation");
       }
-
       const data = await response.json();
-
       setDetailedExplanations((prev) => ({
         ...prev,
         [stepId]: data.explanation,
@@ -116,10 +155,66 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
     }
   };
 
+  const handleToggleCompletion = async (stepId: string) => {
+    if (!enableTracking || !userId || !pathId) {
+      toast.error("Progress tracking not available", {
+        description: "Please save this learning path first to enable tracking."
+      });
+      return;
+    }
+
+    const step = trackedSteps.find(s => s.id === stepId);
+    if (!step) return;
+
+    try {
+      setUpdatingStepId(stepId);
+      const newCompletionStatus = !step.completed;
+      
+      // Optimistic UI update
+      const updatedSteps = trackedSteps.map(s => 
+        s.id === stepId ? { ...s, completed: newCompletionStatus } : s
+      );
+      setTrackedSteps(updatedSteps);
+      
+      // Update step completion status on the server
+      await learningService.updateStepCompletion(
+        pathId,
+        stepId,
+        newCompletionStatus,
+        userId
+      );
+      
+      // Calculate and pass the updated progress if callback is provided
+      if (onProgressUpdate) {
+        const completedCount = updatedSteps.filter(s => s.completed).length;
+        onProgressUpdate(completedCount, updatedSteps.length);
+      }
+      
+      toast.success(
+        newCompletionStatus ? "Step marked as completed" : "Step marked as incomplete",
+        { duration: 2000 }
+      );
+    } catch (error) {
+      console.error("Error updating step completion status:", error);
+      
+      // Revert the optimistic update
+      setTrackedSteps(steps);
+      
+      toast.error("Failed to update progress", {
+        description: "Please try again later"
+      });
+    } finally {
+      setUpdatingStepId(null);
+    }
+  };
+
   return (
     <div className={cn("w-full my-6 px-2", className)}>
       <div className="relative">
-        {steps.map((step, index) => (
+        {trackedSteps.map((step, index) => {
+          const isStepCompleted = step.completed === true;
+          
+          return (
           <div key={step.id} className="flex flex-col mb-8 relative">
             {/* Node and content container */}
             <motion.div
@@ -132,14 +227,21 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
               <div
                 className={cn(
                   "min-w-12 h-12 rounded-full flex items-center justify-center bg-gradient-to-br border-2 shadow-lg text-white font-bold",
-                  colorMap[step.type]
+                  isStepCompleted 
+                    ? completedColorMap[step.type] 
+                    : colorMap[step.type]
                 )}
               >
                 {iconMap[step.type]}
               </div>
-
+              
               {/* Content with safe text display and detail expansion */}
-              <div className="ml-4 bg-gray-900 p-3 rounded-md flex-grow border-l-2 border-gray-700">
+              <div className={cn(
+                "ml-4 bg-gray-900 p-3 rounded-md flex-grow border-l-2",
+                isStepCompleted 
+                  ? "border-green-600 bg-gray-900/90" 
+                  : "border-gray-700"
+              )}>
                 <div className="flex justify-between items-center">
                   <h3
                     className={cn(
@@ -155,13 +257,39 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
                   >
                     <SafeTextDisplay text={step.title} />
                   </h3>
+                  
+                  {/* Completion checkbox (if tracking is enabled) */}
+                  {enableTracking && (
+                    <button
+                      onClick={() => handleToggleCompletion(step.id)}
+                      disabled={updatingStepId === step.id}
+                      className={cn(
+                        "ml-2 p-1 rounded hover:bg-gray-800 transition-colors",
+                        updatingStepId === step.id && "opacity-50 cursor-wait"
+                      )}
+                      title={isStepCompleted ? "Mark as incomplete" : "Mark as completed"}
+                    >
+                      {isStepCompleted ? (
+                        <CheckSquare className="h-5 w-5 text-green-400" />
+                      ) : (
+                        <Square className="h-5 w-5 text-gray-400" />
+                      )}
+                    </button>
+                  )}
                 </div>
-
+                
                 <p className="text-xs mt-1 text-gray-300">
                   <SafeTextDisplay text={step.description} />
                 </p>
-
-                {/* NEW: "Learn More" button with clear visual cue */}
+                
+                {/* Completion status (if tracking is enabled and step is completed) */}
+                {enableTracking && isStepCompleted && step.completedAt && (
+                  <div className="mt-2 text-xs text-green-400">
+                    Completed on {new Date(step.completedAt).toLocaleDateString()}
+                  </div>
+                )}
+                
+                {/* "Learn More" button with clear visual cue */}
                 <button
                   onClick={() => handleToggleDetails(step.id, step.title)}
                   className={cn(
@@ -191,7 +319,7 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
                     </>
                   )}
                 </button>
-
+                
                 {/* Detailed explanation section - with custom scrollbar */}
                 <AnimatePresence>
                   {expandedStepId === step.id && (
@@ -236,9 +364,9 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
                 </AnimatePresence>
               </div>
             </motion.div>
-
+            
             {/* Arrow to next step */}
-            {index < steps.length - 1 && (
+            {index < trackedSteps.length - 1 && (
               <motion.div
                 className="absolute left-6 top-12 h-8 flex items-center justify-center -translate-x-1/2"
                 initial={{ opacity: 0 }}
@@ -250,17 +378,26 @@ const LearningPathDiagram: React.FC<LearningPathDiagramProps> = ({
               </motion.div>
             )}
           </div>
-        ))}
+        )})}
       </div>
-
-      {/* NEW: Help text for the diagram */}
-      <div className="flex items-center justify-center mt-2 mb-1">
+      
+      {/* Help text for the diagram */}
+      <div className="flex items-center justify-center mt-2 mb-1 space-x-4">
         <p className="text-xs text-gray-500 italic flex items-center">
           <Info className="h-3 w-3 mr-1" />
           <span>
             Click on "Learn more" for detailed explanations about each step
           </span>
         </p>
+        
+        {enableTracking && (
+          <p className="text-xs text-green-500 italic flex items-center">
+            <CheckSquare className="h-3 w-3 mr-1" />
+            <span>
+              Click the checkbox to mark steps as completed
+            </span>
+          </p>
+        )}
       </div>
     </div>
   );
