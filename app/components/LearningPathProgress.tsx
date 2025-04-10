@@ -5,6 +5,9 @@ import { learningService } from '@/utils/learningService';
 import { getSessionId, getPathAccessToken } from '@/utils/sessionUtils';
 import ProgressBar from './ProgressBar';
 import LearningStepItem from './LearningStepItem';
+import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Trash2, ArrowLeft } from 'lucide-react';
 
 interface LearningPathProgressProps {
   progressId: string;
@@ -26,6 +29,7 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Add state for tracking operations in progress
   const [updatingSteps, setUpdatingSteps] = useState<Set<string>>(new Set());
@@ -167,6 +171,23 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
     }
   };
 
+  // Handle deletion of the learning path
+  const handleDeleteLearningPath = async () => {
+    if (!learningPath) return;
+    
+    setIsDeleting(true);
+    
+    try {
+      await learningService.deleteLearningPath(learningPath._id);
+      // Navigate back to learning paths list
+      router.push('/learning-paths');
+    } catch (err: any) {
+      console.error('Error deleting learning path:', err);
+      setError(`Failed to delete learning path: ${err.message}`);
+      setIsDeleting(false);
+    }
+  };
+
   // Get steps filtered by category if a category is selected
   const getFilteredSteps = () => {
     if (!learningPath) return [];
@@ -219,8 +240,8 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-        <span className="ml-3 text-gray-600">Loading learning path...</span>
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-primary"></div>
+        <span className="ml-3 text-muted-foreground">Loading learning path...</span>
       </div>
     );
   }
@@ -228,26 +249,23 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   // Error state
   if (error || !learningPath) {
     return (
-      <div className="bg-white rounded-lg shadow-md p-6 text-center">
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto text-red-500 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-        </svg>
-        <div className="text-red-500 mb-4 font-medium text-lg">
+      <div className="bg-card rounded-lg shadow-md p-6 text-center">
+        <div className="text-destructive mb-4 font-medium text-lg">
           {error || 'Failed to load learning path'}
         </div>
         <div className="flex flex-col md:flex-row justify-center gap-4 mt-6">
-          <button
+          <Button 
             onClick={handleRetry}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+            variant="default"
           >
             Retry
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => router.push('/learning-paths')}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+            variant="outline"
           >
             Back to Learning Paths
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -259,64 +277,99 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
 
   // Render learning path content
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+    <div className="bg-card rounded-lg shadow-md overflow-hidden">
       {/* Header section */}
-      <div className="p-6 border-b border-gray-200 bg-gray-50">
-        <h2 className="text-2xl font-bold text-gray-800">{learningPath.title}</h2>
+      <div className="p-6 border-b border-border bg-muted/30">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-foreground">{learningPath.title}</h2>
+          
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.push('/learning-paths')}
+            >
+              <ArrowLeft className="w-4 h-4 mr-1" /> Back
+            </Button>
+            
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" size="sm">
+                  <Trash2 className="w-4 h-4 mr-1" /> Delete
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete Learning Path</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to delete this learning path? 
+                    This action cannot be undone and all your progress will be lost.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction 
+                    onClick={handleDeleteLearningPath}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Deleting...' : 'Delete'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        </div>
 
         {learningPath.description && (
-          <p className="mt-2 text-gray-600">{learningPath.description}</p>
+          <p className="mt-2 text-muted-foreground">{learningPath.description}</p>
         )}
 
         <div className="mt-4">
           <div className="mb-2 flex justify-between items-center">
-            <span className="text-sm font-medium text-gray-700">
+            <span className="text-sm font-medium text-foreground">
               Overall Progress
             </span>
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-muted-foreground">
               {learningPath.completedSteps} of {learningPath.totalSteps} steps
             </span>
           </div>
-          <ProgressBar
+          <ProgressBar 
             progress={learningPath.completedSteps}
             total={learningPath.totalSteps}
             height={8}
-            progressColor="bg-blue-500"
+            progressColor="bg-primary"
           />
         </div>
       </div>
 
       {/* Category filters */}
-      <div className="px-6 py-3 bg-gray-50 border-b border-gray-200">
+      <div className="px-6 py-3 bg-muted/30 border-b border-border">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-gray-700 mr-2">Filter:</span>
-
-          <button
+          <span className="text-sm font-medium text-muted-foreground mr-2">Filter:</span>
+          
+          <Button
             onClick={() => setActiveCategory(null)}
-            className={`px-3 py-1 text-sm rounded-full ${
-              activeCategory === null
-                ? 'bg-gray-800 text-white'
-                : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
-            }`}
+            size="sm"
+            variant={activeCategory === null ? "default" : "outline"}
+            className="h-7 px-3 py-1 text-xs rounded-full"
           >
             All ({learningPath.totalSteps})
-          </button>
-
+          </Button>
+          
           {Object.entries(categoryCompletion).map(([category, { total, completed }]) => (
-            <button
+            <Button
               key={category}
               onClick={() => setActiveCategory(category)}
-              className={`px-3 py-1 text-sm rounded-full flex items-center ${
-                activeCategory === category
-                  ? 'bg-gray-800 text-white'
-                  : 'bg-gray-200 text-gray-800 hover:bg-gray-300'
-              }`}
+              size="sm"
+              variant={activeCategory === category ? "default" : "outline"}
+              className="h-7 px-3 py-1 text-xs rounded-full flex items-center"
             >
               <span>{category} ({total})</span>
               <span className="ml-1 text-xs">
                 {Math.round((completed / total) * 100)}%
               </span>
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -325,7 +378,7 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
       <div className="p-6">
         <div className="space-y-4">
           {filteredSteps.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">
+            <p className="text-center text-muted-foreground py-8">
               No steps found in this category.
             </p>
           ) : (

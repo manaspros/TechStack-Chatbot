@@ -299,6 +299,37 @@ class LearningService {
 
     return await response.json();
   }
+
+  /**
+   * Delete a learning path
+   * @param progressId - The ID of the learning path to delete
+   */
+  async deleteLearningPath(progressId: string): Promise<{success: boolean, deletedId: string}> {
+    const sessionId = getSessionId();
+    const pathToken = getPathAccessToken(progressId);
+    
+    console.log(`Attempting to delete learning path: ${progressId}`);
+    
+    const response = await fetch(
+      `${API_BASE_URL}/learning/${progressId}?userId=${sessionId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Session-ID': sessionId,
+          ...(pathToken ? { 'X-Path-Token': pathToken } : {})
+        }
+      }
+    );
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Delete learning path error:', errorData);
+      throw new Error(`Failed to delete learning path: ${response.statusText}`);
+    }
+    
+    return await response.json();
+  }
 }
 
 export const learningService = new LearningService();

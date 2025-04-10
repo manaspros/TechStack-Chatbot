@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { LearningStep } from '@/models/LearningProgress';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { AlertCircle, Check, Edit2, Save } from 'lucide-react';
 
 interface LearningStepItemProps {
   step: LearningStep;
@@ -48,14 +51,14 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
   const getCategoryStyle = () => {
     switch (step.category) {
       case 'prerequisite':
-        return 'border-blue-300 bg-blue-50';
+        return 'border-blue-500 bg-blue-50 dark:bg-blue-950/30';
       case 'practice':
-        return 'border-green-300 bg-green-50';
+        return 'border-green-500 bg-green-50 dark:bg-green-950/30';
       case 'advanced':
-        return 'border-purple-300 bg-purple-50';
+        return 'border-purple-500 bg-purple-50 dark:bg-purple-950/30';
       case 'core':
       default:
-        return 'border-cyan-300 bg-cyan-50';
+        return 'border-primary bg-primary-50 dark:bg-primary-950/30';
     }
   };
 
@@ -98,7 +101,7 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
         getCategoryStyle(),
         step.completed ? 'border-opacity-100' : 'border-opacity-50',
         (isLoading || isUpdating) && 'opacity-70',
-        localErrorMessage && 'border-red-300'
+        localErrorMessage && 'border-destructive'
       )}
     >
       <div className="flex items-start gap-3">
@@ -108,26 +111,18 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
             onClick={handleToggleComplete}
             className={cn(
               'w-5 h-5 rounded border flex items-center justify-center cursor-pointer transition-colors',
-              isUpdating ? 'bg-gray-200 border-gray-300' : (
+              isUpdating ? 'bg-muted border-muted-foreground' : (
                 step.completed 
-                  ? 'bg-cyan-500 border-cyan-600 text-white' 
-                  : 'bg-white border-gray-300 hover:bg-gray-100'
+                  ? 'bg-primary border-primary-foreground text-primary-foreground' 
+                  : 'bg-background border-input hover:bg-muted/50'
               ),
               (isLoading || isUpdating) && 'cursor-wait'
             )}
           >
             {isUpdating ? (
-              <div className="w-3 h-3 border-2 border-gray-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="w-3 h-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin"></div>
             ) : step.completed && (
-              <svg 
-                xmlns="http://www.w3.org/2000/svg" 
-                width="16" 
-                height="16" 
-                fill="currentColor" 
-                viewBox="0 0 16 16"
-              >
-                <path d="M13.854 3.646a.5.5 0 0 1 0 .708l-7 7a.5.5 0 0 1-.708 0l-3.5-3.5a.5.5 0 1 1 .708-.708L6.5 10.293l6.646-6.647a.5.5 0 0 1 .708 0z"/>
-              </svg>
+              <Check className="w-3.5 h-3.5" />
             )}
           </div>
         </div>
@@ -137,8 +132,8 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3 
               className={cn(
-                'text-base font-medium text-gray-800',
-                step.completed && 'line-through text-gray-500'
+                'text-base font-medium text-foreground',
+                step.completed && 'line-through text-muted-foreground'
               )}
             >
               {step.title}
@@ -149,10 +144,10 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
               <span className={cn(
                 'text-xs px-2 py-1 rounded-full capitalize',
                 {
-                  'bg-blue-100 text-blue-800': step.category === 'prerequisite',
-                  'bg-cyan-100 text-cyan-800': step.category === 'core' || !step.category,
-                  'bg-green-100 text-green-800': step.category === 'practice',
-                  'bg-purple-100 text-purple-800': step.category === 'advanced',
+                  'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300': step.category === 'prerequisite',
+                  'bg-primary/10 text-primary-foreground/80 dark:bg-primary-900/30 dark:text-primary-300': step.category === 'core' || !step.category,
+                  'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300': step.category === 'practice',
+                  'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300': step.category === 'advanced',
                 }
               )}>
                 {step.category || 'core'}
@@ -162,15 +157,18 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
           
           {/* Completion date */}
           {step.completed && step.completedAt && (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               Completed on {formatCompletionDate()}
             </p>
           )}
           
           {/* Error message */}
           {localErrorMessage && (
-            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
-              <p className="text-xs text-red-600">{localErrorMessage}</p>
+            <div className="mt-2 p-2 bg-destructive/10 border border-destructive/20 rounded-md">
+              <div className="flex items-center">
+                <AlertCircle className="w-4 h-4 text-destructive mr-1" />
+                <p className="text-xs text-destructive">{localErrorMessage}</p>
+              </div>
             </div>
           )}
           
@@ -178,32 +176,29 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
           <div className="mt-3">
             {isEditing ? (
               <div className="space-y-2">
-                <textarea
+                <Textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Add your notes about this step..."
-                  className="w-full p-2 border border-gray-300 rounded-md text-sm min-h-[80px]"
+                  className="w-full p-2 text-sm min-h-[80px]"
                   disabled={isSavingNotes}
                 />
                 <div className="flex justify-end gap-2">
-                  <button
+                  <Button
                     onClick={() => {
                       setNotes(step.notes || '');
                       setIsEditing(false);
                     }}
-                    className="px-3 py-1 text-xs rounded-md border border-gray-300 bg-white hover:bg-gray-100"
+                    variant="outline"
+                    size="sm"
                     disabled={isSavingNotes}
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={handleSaveNotes}
-                    className={cn(
-                      "px-3 py-1 text-xs rounded-md",
-                      isSavingNotes 
-                        ? "bg-gray-400 text-white" 
-                        : "bg-cyan-500 text-white hover:bg-cyan-600"
-                    )}
+                    variant="default"
+                    size="sm"
                     disabled={isSavingNotes}
                   >
                     {isSavingNotes ? (
@@ -211,44 +206,41 @@ const LearningStepItem: React.FC<LearningStepItemProps> = ({
                         <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
                         Saving...
                       </div>
-                    ) : 'Save Notes'}
-                  </button>
+                    ) : (
+                      <div className="flex items-center">
+                        <Save className="w-3 h-3 mr-1" />
+                        Save Notes
+                      </div>
+                    )}
+                  </Button>
                 </div>
               </div>
             ) : (
               <div>
                 {step.notes ? (
-                  <div className="bg-white bg-opacity-50 p-2 rounded-md text-sm text-gray-700">
+                  <div className="bg-background/50 p-2 rounded-md text-sm text-foreground">
                     {step.notes}
-                    <button
+                    <Button
                       onClick={() => setIsEditing(true)}
-                      className="ml-2 text-xs text-cyan-600 hover:text-cyan-800 underline"
+                      variant="ghost"
+                      size="sm"
+                      className="ml-2 h-6 px-2 text-xs"
                       disabled={isSavingNotes}
                     >
-                      Edit
-                    </button>
+                      <Edit2 className="w-3 h-3 mr-1" /> Edit
+                    </Button>
                   </div>
                 ) : (
-                  <button
+                  <Button
                     onClick={() => setIsEditing(true)}
-                    className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center h-6 px-2"
                     disabled={isSavingNotes}
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="12"
-                      height="12"
-                      fill="currentColor"
-                      viewBox="0 0 16 16"
-                    >
-                      <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z" />
-                      <path
-                        fillRule="evenodd"
-                        d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5v11z"
-                      />
-                    </svg>
+                    <Edit2 className="w-3 h-3 mr-1" />
                     Add notes
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
