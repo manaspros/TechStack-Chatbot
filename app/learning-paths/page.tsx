@@ -69,8 +69,11 @@ const LearningPathsPage: React.FC = () => {
 
   // Format learning path title to remove redundancy
   const formatPathTitle = (title: string) => {
-    // Remove redundant "Learning Path: " prefix if present
-    return title.replace(/^Learning Path: /i, '');
+    if (!title) return '';
+    // Remove all variations of "Learning Path: " prefix
+    return title
+      .replace(/^Learning Path: /i, '')
+      .replace(/^Learning Path /i, '');
   };
 
   // Format learning path description to clean it up
@@ -98,6 +101,9 @@ const LearningPathsPage: React.FC = () => {
     const url = new URL(window.location.href);
     url.searchParams.delete('pathId');
     window.history.pushState({}, '', url.toString());
+    
+    // Reload learning paths to ensure we get the latest data
+    fetchLearningPaths();
   };
 
   // Handle login redirect

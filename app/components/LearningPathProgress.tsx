@@ -8,6 +8,7 @@ import LearningStepItem from './LearningStepItem';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Trash2, ArrowLeft } from 'lucide-react';
+import Head from 'next/head';
 
 interface LearningPathProgressProps {
   progressId: string;
@@ -43,7 +44,7 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   const formatPathTitle = (title: string) => {
     if (!title) return '';
     // Remove redundant "Learning Path: " prefix if present
-    return title.replace(/^Learning Path: /i, '');
+    return title.replace(/^Learning Path: /i, '').replace(/^Learning Path /i, '');
   };
 
   // Format learning path description to clean it up
@@ -103,6 +104,15 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
 
     loadLearningPath();
   }, [progressId, retryCount, directAccessToken]);
+
+  // Update document title when learning path is loaded
+  useEffect(() => {
+    if (learningPath) {
+      document.title = `${formatPathTitle(learningPath.title)} - Learning Path`;
+    } else {
+      document.title = 'Learning Path';
+    }
+  }, [learningPath]);
 
   // Handle step completion toggle with improved error handling
   const handleToggleComplete = async (stepId: string, completed: boolean) => {
@@ -290,15 +300,22 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   const stepCounts = getStepCounts();
   const categoryCompletion = getCategoryCompletion();
   const filteredSteps = getFilteredSteps();
+  
+  // Get the properly formatted title
+  const formattedTitle = formatPathTitle(learningPath.title);
+  const formattedDescription = formatPathDescription(learningPath.description);
 
   // Render learning path content
   return (
     <div className="bg-card rounded-lg shadow-md overflow-hidden">
+      <Head>
+        <title>{formattedTitle} - Learning Path</title>
+      </Head>
       {/* Header section */}
       <div className="p-6 border-b border-border bg-muted/30">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-foreground">
-            {learningPath ? formatPathTitle(learningPath.title) : ''}
+            {formattedTitle}
           </h2>
           
           <div className="flex gap-2">
@@ -339,9 +356,9 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
           </div>
         </div>
 
-        {learningPath?.description && (
+        {formattedDescription && (
           <p className="mt-2 text-muted-foreground">
-            {formatPathDescription(learningPath.description)}
+            {formattedDescription}
           </p>
         )}
 

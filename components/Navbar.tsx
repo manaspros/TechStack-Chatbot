@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Home, MessageSquare, Shield } from "lucide-react";
+import { Menu, X, Home, MessageSquare, BookOpen } from "lucide-react";
 import { useUser } from "@auth0/nextjs-auth0/client";
 import { cn } from "@/lib/utils";
 
@@ -23,16 +23,12 @@ export default function Navbar() {
       href: "/chatbot",
       icon: <MessageSquare className="h-4 w-4" />,
     },
+    {
+      label: "Learning Paths",
+      href: "/learning-paths",
+      icon: <BookOpen className="h-4 w-4" />,
+    },
   ];
-
-  // Only add Protected route for logged-in users
-  if (user) {
-    navItems.push({
-      label: "Protected",
-      href: "/protected",
-      icon: <Shield className="h-4 w-4" />,
-    });
-  }
 
   // Handle login/logout
   const handleAuth = () => {
