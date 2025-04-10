@@ -39,6 +39,22 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
   // Check for direct access token in URL
   const directAccessToken = searchParams?.get('access_token');
 
+  // Format learning path title to remove redundancy
+  const formatPathTitle = (title: string) => {
+    if (!title) return '';
+    // Remove redundant "Learning Path: " prefix if present
+    return title.replace(/^Learning Path: /i, '');
+  };
+
+  // Format learning path description to clean it up
+  const formatPathDescription = (description: string) => {
+    if (!description) return '';
+    // Remove "Learning path generated for: " or "Learning path for " prefix if present
+    return description
+      .replace(/^Learning path generated for: /i, '')
+      .replace(/^Learning path for /i, '');
+  };
+
   // Simplified authentication - no Auth0 dependency
   useEffect(() => {
     const loadLearningPath = async () => {
@@ -281,7 +297,9 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
       {/* Header section */}
       <div className="p-6 border-b border-border bg-muted/30">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-foreground">{learningPath.title}</h2>
+          <h2 className="text-2xl font-bold text-foreground">
+            {learningPath ? formatPathTitle(learningPath.title) : ''}
+          </h2>
           
           <div className="flex gap-2">
             <Button
@@ -321,8 +339,10 @@ const LearningPathProgress: React.FC<LearningPathProgressProps> = ({
           </div>
         </div>
 
-        {learningPath.description && (
-          <p className="mt-2 text-muted-foreground">{learningPath.description}</p>
+        {learningPath?.description && (
+          <p className="mt-2 text-muted-foreground">
+            {formatPathDescription(learningPath.description)}
+          </p>
         )}
 
         <div className="mt-4">
