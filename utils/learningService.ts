@@ -282,7 +282,7 @@ class LearningService {
     };
     
     const response = await fetch(
-      `${API_BASE_URL}/learning`,
+      `${API_BASE_URL}/api/learning`,
       {
         method: 'POST',
         headers: {
